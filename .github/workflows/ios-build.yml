@@ -1,0 +1,65 @@
+name: iOS compile check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          path: source
+          persist-credentials: false
+
+      - name: Prepare dependencies
+        working-directory: source/Example/ESPProvisionSample
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          command -v pod >/dev/null || brew install cocoapods
+          pod --version
+          # Build the library checked out from this repository, rather than a published copy.
+          ruby <<'RUBY'
+          file = 'Podfile'
+          text = File.read(file)
+          unless text.sub!(/^\s*pod 'ESPProvision', '3\.0\.3'/, "  pod 'ESPProvision', :path => '../..'")
+            abort 'Unexpected Podfile: review local ESPProvision dependency before building'
+          end
+          text.gsub!("['ENABLE_BITCODE'] = 'YES'", "['ENABLE_BITCODE'] = 'NO'")
+          File.write(file, text)
+          RUBY
+          pod install
+
+      - name: Compile unsigned iPhone app
+        working-directory: source/Example/ESPProvisionSample
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          xcodebuild \
+            -workspace ESPProvisionSample.xcworkspace \
+            -scheme ESPProvisionSample \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ios-derived-data" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ENABLE_BITCODE=NO \
+            build 2>&1 | tee "$GITHUB_WORKSPACE/results/xcodebuild.log"
+
+      - name: Save build logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-compile-logs
+          path: results/
+          if-no-files-found: ignore
+          retention-days: 7
