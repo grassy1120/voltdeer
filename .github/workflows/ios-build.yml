@@ -2,6 +2,11 @@ name: iOS compile check
 
 on:
   workflow_dispatch:
+    inputs:
+      sign_ipa:
+        description: Export an Ad Hoc IPA for registered iPhones
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,6 +43,7 @@ jobs:
           pod install
 
       - name: Compile unsigned iPhone app
+        if: ${{ !inputs.sign_ipa }}
         working-directory: source/Example/ESPProvisionSample
         shell: bash
         run: |
@@ -55,8 +61,27 @@ jobs:
             ENABLE_BITCODE=NO \
             build 2>&1 | tee "$GITHUB_WORKSPACE/results/xcodebuild.log"
 
+      - name: Archive and sign for registered devices
+        if: inputs.sign_ipa
+        working-directory: source/Example/ESPProvisionSample
+        env:
+          P12_B64: ${{ secrets.IOS_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROFILE_BASE64 }}
+          IPA_PASSWORD: ${{ secrets.IOS_IPA_PASSWORD }}
+        run: bash ../../.github/scripts/sign-adhoc.sh
+
+      - name: Save encrypted IPA
+        if: inputs.sign_ipa
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-adhoc
+          path: ${{ runner.temp }}/Voltdeer-iOS.7z
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Save build logs
-        if: always()
+        if: always() && !inputs.sign_ipa
         uses: actions/upload-artifact@v7
         with:
           name: ios-compile-logs
