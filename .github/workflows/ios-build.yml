@@ -58,8 +58,35 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/ios-derived-data" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS= \
+            PRODUCT_BUNDLE_IDENTIFIER=com.grassy1120.voltdeer.provision \
             ENABLE_BITCODE=NO \
             build 2>&1 | tee "$GITHUB_WORKSPACE/results/xcodebuild.log"
+
+      - name: Package unsigned IPA for personal signing
+        if: ${{ !inputs.sign_ipa }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_dir="$RUNNER_TEMP/ios-derived-data/Build/Products/Debug-iphoneos"
+          staging="$RUNNER_TEMP/unsigned-ipa"
+          mkdir -p "$staging/Payload"
+          apps=("$app_dir"/*.app)
+          test "${#apps[@]}" -eq 1
+          test -d "${apps[0]}"
+          ditto "${apps[0]}" "$staging/Payload/$(basename "${apps[0]}")"
+          cd "$staging"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/results/Voltdeer-personal-unsigned.ipa" Payload
+          /usr/bin/unzip -t "$GITHUB_WORKSPACE/results/Voltdeer-personal-unsigned.ipa"
+
+      - name: Save unsigned IPA
+        if: ${{ !inputs.sign_ipa }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-personal-unsigned
+          path: results/Voltdeer-personal-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Archive and sign for registered devices
         if: inputs.sign_ipa
